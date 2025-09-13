@@ -1,0 +1,4 @@
+UpstreamRepo: https://github.com/MiviaLab/vf3lib
+Commit: ce50d79ad19611af3197043fff36d52ca8a7a5bd
+Date: 2025-09-02T17:05:58+02:00
+Message: Merge branches 'master' and 'master' of https://github.com/MiviaLab/vf3lib
