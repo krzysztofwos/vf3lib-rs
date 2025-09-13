@@ -1,0 +1,31 @@
+[package]
+name = "vf3lib-rs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Rust bindings to VF3/VF3L/VF3P subgraph isomorphism algorithms via CXX"
+repository = "https://github.com/krzysztofwos/vf3lib-rs"
+readme = "README.md"
+homepage = "https://github.com/krzysztofwos/vf3lib-rs"
+documentation = "https://docs.rs/vf3lib-rs"
+keywords = ["graphs", "subgraph-isomorphism", "vf3", "bindings", "cxx"]
+categories = ["algorithms", "api-bindings"]
+
+[lib]
+name = "vf3lib_rs"
+crate-type = ["rlib"]
+
+[dependencies]
+cxx = "1"
+thiserror = "2"
+
+[build-dependencies]
+cxx-build = "1"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
