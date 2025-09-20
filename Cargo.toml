@@ -2,7 +2,7 @@
 name = "vf3lib-rs"
 version = "0.1.0"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license-file = "LICENSES.md"
 description = "Rust bindings to VF3/VF3L/VF3P subgraph isomorphism algorithms via CXX"
 repository = "https://github.com/krzysztofwos/vf3lib-rs"
 readme = "README.md"
