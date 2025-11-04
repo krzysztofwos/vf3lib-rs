@@ -8,11 +8,17 @@
 #endif
 #endif
 
+#include <algorithm>
+#include <cassert>
+#include <cctype>
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Suppress warnings from vendored vf3lib headers.
@@ -40,7 +46,6 @@
 #include "VF3NodeSorter.hpp"
 #include "VF3SubState.hpp"
 #include "loaders/ARGLoader.hpp"
-#include "loaders/EdgeStreamARGLoader.hpp"
 #include "loaders/FastStreamARGLoader.hpp"
 
 // Parallel algorithm is Linux-only due to cpu_set_t and pthread_setaffinity_np
@@ -70,6 +75,146 @@ using LightState = vflib::VF3LightSubState<data_t, data_t, vflib::Empty, vflib::
 using ParState = vflib::CloneableVF3ParallelSubState<data_t, data_t, vflib::Empty, vflib::Empty>;
 #endif
 
+class PortableEdgeListLoader final : public vflib::ARGLoader<data_t, vflib::Empty> {
+  public:
+    PortableEdgeListLoader(std::istream &in, bool undirected) : undirected_(undirected) {
+        parse(in);
+    }
+
+    bool is_valid() const {
+        return valid_;
+    }
+
+    uint32_t NodeCount() const override {
+        return node_count_;
+    }
+
+    data_t GetNodeAttr(vflib::nodeID_t) override {
+        return node_attribute_;
+    }
+
+    uint32_t OutEdgeCount(vflib::nodeID_t node) const override {
+        if (node >= adjacency_.size()) {
+            return 0;
+        }
+        return static_cast<uint32_t>(adjacency_[node].size());
+    }
+
+    vflib::nodeID_t GetOutEdge(vflib::nodeID_t node, uint32_t i, vflib::Empty *pattr) override {
+        assert(node < adjacency_.size());
+        assert(i < adjacency_[node].size());
+        *pattr = edge_attribute_;
+        return adjacency_[node][i];
+    }
+
+  private:
+    static void trim(std::string &line) {
+        size_t start = 0;
+        while (start < line.size() && std::isspace(static_cast<unsigned char>(line[start]))) {
+            ++start;
+        }
+        size_t end = line.size();
+        while (end > start && std::isspace(static_cast<unsigned char>(line[end - 1]))) {
+            --end;
+        }
+        if (start == 0 && end == line.size()) {
+            return;
+        }
+        line = line.substr(start, end - start);
+    }
+
+    void parse(std::istream &in) {
+        std::vector<std::pair<vflib::nodeID_t, vflib::nodeID_t>> edges;
+        std::vector<vflib::nodeID_t> nodes;
+        std::string line;
+
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            trim(line);
+            if (line.empty() || line[0] == '#') {
+                continue;
+            }
+
+            std::istringstream iss(line);
+            unsigned long long raw_u = 0;
+            unsigned long long raw_v = 0;
+            if (!(iss >> raw_u >> raw_v)) {
+                valid_ = false;
+                return;
+            }
+
+            const auto max_id =
+                static_cast<unsigned long long>((std::numeric_limits<vflib::nodeID_t>::max)());
+            if (raw_u == 0 || raw_v == 0 || raw_u > max_id || raw_v > max_id) {
+                valid_ = false;
+                return;
+            }
+
+            const auto u = static_cast<vflib::nodeID_t>(raw_u - 1);
+            const auto v = static_cast<vflib::nodeID_t>(raw_v - 1);
+            if (u == v) {
+                valid_ = false;
+                return;
+            }
+
+            edges.emplace_back(u, v);
+            nodes.push_back(u);
+            nodes.push_back(v);
+        }
+
+        if (nodes.empty()) {
+            adjacency_.clear();
+            node_count_ = 0;
+            valid_ = true;
+            return;
+        }
+
+        std::sort(nodes.begin(), nodes.end());
+        nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+        if (nodes.size() > static_cast<size_t>((std::numeric_limits<uint32_t>::max)())) {
+            valid_ = false;
+            return;
+        }
+
+        std::unordered_map<vflib::nodeID_t, vflib::nodeID_t> id_map;
+        id_map.reserve(nodes.size());
+        for (size_t idx = 0; idx < nodes.size(); ++idx) {
+            id_map[nodes[idx]] = static_cast<vflib::nodeID_t>(idx);
+        }
+
+        adjacency_.assign(nodes.size(), {});
+        for (const auto &edge : edges) {
+            const auto it_u = id_map.find(edge.first);
+            const auto it_v = id_map.find(edge.second);
+            if (it_u == id_map.end() || it_v == id_map.end()) {
+                valid_ = false;
+                return;
+            }
+            adjacency_[it_u->second].push_back(it_v->second);
+            if (undirected_) {
+                adjacency_[it_v->second].push_back(it_u->second);
+            }
+        }
+
+        for (auto &neighbors : adjacency_) {
+            std::sort(neighbors.begin(), neighbors.end());
+            neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+        }
+
+        node_count_ = static_cast<uint32_t>(adjacency_.size());
+        valid_ = true;
+    }
+
+    bool undirected_;
+    bool valid_ = false;
+    uint32_t node_count_ = 0;
+    data_t node_attribute_{};
+    vflib::Empty edge_attribute_;
+    std::vector<std::vector<vflib::nodeID_t>> adjacency_;
+};
+
 // Convert Rust string slice to std::string.
 static inline std::string to_string_view(rust::Str s) {
     return std::string(s.data(), s.size());
@@ -89,8 +234,11 @@ create_loader(std::istream &in, const std::string &fmt, bool undirected) {
     }
 
     if (fmt == "edge") {
-        return std::unique_ptr<vflib::ARGLoader<data_t, vflib::Empty>>(
-            new vflib::EdgeStreamARGLoader<data_t, vflib::Empty>(in, undirected));
+        auto loader = std::make_unique<PortableEdgeListLoader>(in, undirected);
+        if (!loader->is_valid()) {
+            return nullptr;
+        }
+        return loader;
     }
 
     return nullptr;
