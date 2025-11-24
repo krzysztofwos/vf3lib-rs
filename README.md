@@ -111,4 +111,4 @@ The bundled vf3lib C++ headers are licensed under LGPL v3. See [THIRD_PARTY_NOTI
 ## References
 
 - [vf3lib GitHub Repository](https://github.com/MiviaLab/vf3lib)
-- [VF3: A New Algorithm for Subgraph Isomorphism](https://ieeexplore.ieee.org/document/8693808)
+- [VF3: A New Algorithm for Subgraph Isomorphism](https://link.springer.com/chapter/10.1007/978-3-319-58961-9_12)
